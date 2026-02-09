@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Manager = require(script.Manager)
 local ProfileClass = require(script.ProfileClass)
 local Config = require(script.Config)
-local Network = require(ReplicatedStorage.Shared.Kernel.Network.NetworkKernel)
+local Network = require(ReplicatedStorage.Shared.Network)
 local ValueMirror = require(script.ValueMirror)
 
 type Profile = typeof(ProfileClass.new(nil :: any, nil :: any))
