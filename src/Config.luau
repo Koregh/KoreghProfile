@@ -1,9 +1,18 @@
 --!strict
 
+local RunService = game:GetService("RunService")
+
 local Config = {
-	
 	DATA_KEY = "PRODUCTION_V1",
 	
+	SESSION_LOCK_TIMEOUT = 1200, -- 20 minutes
+	LOAD_MAX_RETRIES = 8,
+	AUTO_SAVE_INTERVAL = 30, -- seconds
+	
+	MOCK_MODE = RunService:IsStudio(),
+	DEBUG_MODE = true,
+	
+	-- Default Data Template
 	TEMPLATE = {
 		Stats = {
 			Wallet = 0,
@@ -13,7 +22,7 @@ local Config = {
 			Prestige = 0,
 		},
 		Inventory = {
-			Items = {}, 
+			Items = {},
 			Skins = {},
 		},
 		Settings = {
@@ -25,22 +34,21 @@ local Config = {
 			Active = {},
 			Completed = {},
 			DailyResetTime = 0,
-		}, 
+		},
 	},
-	SESSION_LOCK_TIMEOUT = 1200,
-	
-	AUTO_SAVE_INTERVAL = 30,
-	
-	LOAD_MAX_RETRIES = 8,
-	
-	MOCK_MODE = game:GetService("RunService"):IsStudio(),
-
-
-	DEBUG_MODE = true, 
 }
 
 function Config.Validate(data: any): (boolean, string?)
-	return true
+	
+	if type(data) ~= "table" then
+		return false, "Data must be a table"
+	end
+	
+	if type(data.Stats) ~= "table" then
+		return false, "Stats must be a table"
+	end
+	
+	return true, nil
 end
 
 return Config
