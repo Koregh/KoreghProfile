@@ -5,9 +5,9 @@ local RunService = game:GetService("RunService")
 local Config = {
 	DATA_KEY = "PRODUCTION_V1",
 	
-	SESSION_LOCK_TIMEOUT = 1200, -- 20 minutes
+	SESSION_LOCK_TIMEOUT = 1200, 
 	LOAD_MAX_RETRIES = 8,
-	AUTO_SAVE_INTERVAL = 30, -- seconds
+	AUTO_SAVE_INTERVAL = 30, 
 	
 	MOCK_MODE = RunService:IsStudio(),
 	DEBUG_MODE = true,
