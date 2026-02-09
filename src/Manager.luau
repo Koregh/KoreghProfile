@@ -26,7 +26,7 @@ function Manager.UpdateAsync(player: Player, transformFunc: (any) -> any): (bool
 				
 				if timeSinceLastPing < Constants.SETTING.SessionLockTimeout then
 					log("[WARN]", `Session locked for {player.Name}`)
-					return nil -- Abort: Another server has this profile
+					return nil 
 				end
 			end
 			
