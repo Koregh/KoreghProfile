@@ -264,112 +264,21 @@ function DataSystem:Set(player: Player, path: string, value: any): boolean
 	return true
 end
 
-function DataSystem:Increment(player: Player, path: string, amount: number): boolean
-	local currentValue = self:Get(player, path)
-
-	if type(currentValue) ~= "number" then
-		log(LogLevel.ERROR, `Cannot increment non-number at {path}`)
+function DataSystem:Mutate(player: Player, path: string, mutator: (any) -> any): boolean
+	local profile = self:GetProfile(player)
+	if not profile then
+		log(LogLevel.ERROR, `Cannot mutate {path}: No profile for {player.Name}`)
 		return false
 	end
 
-	return self:Set(player, path, currentValue + amount)
-end
-
-function DataSystem:Decrement(player: Player, path: string, amount: number): boolean
-	return self:Increment(player, path, -amount)
-end
-
-function DataSystem:ListAdd(player: Player, path: string, value: any): boolean
-	local list = self:Get(player, path)
-
-	if type(list) ~= "table" then
-		log(LogLevel.ERROR, `Path {path} is not a valid list`)
+	local value = navigateToValue(profile.Data, path)
+	if value == nil then
+		log(LogLevel.ERROR, `Invalid path: {path}`)
 		return false
 	end
 
-	table.insert(list, value)
-	self:_notifyChange(player, path, list)
-
-	return true
-end
-
-function DataSystem:ListRemove(player: Player, path: string, key: string, targetValue: any): boolean
-	local list = self:Get(player, path)
-
-	if type(list) ~= "table" then
-		return false
-	end
-
-	for i, item in list do
-		local matches = if type(item) == "table"
-			then item[key] == targetValue
-			else item == targetValue
-
-		if matches then
-			table.remove(list, i)
-			self:_notifyChange(player, path, list)
-			return true
-		end
-	end
-
-	return false
-end
-
-function DataSystem:ListMove(
-	player: Player,
-	fromPath: string,
-	toPath: string,
-	key: string,
-	targetValue: any
-): boolean
-	local sourceList = self:Get(player, fromPath)
-
-	if type(sourceList) ~= "table" then
-		return false
-	end
-
-	-- Find and remove item
-	local itemToMove = nil
-	for i, item in sourceList do
-		local matches = if type(item) == "table"
-			then item[key] == targetValue
-			else item == targetValue
-
-		if matches then
-			itemToMove = item
-			table.remove(sourceList, i)
-			break
-		end
-	end
-
-	if not itemToMove then
-		return false
-	end
-
-	self:ListAdd(player, toPath, itemToMove)
-	self:_notifyChange(player, fromPath, sourceList)
-
-	return true
-end
-
-function DataSystem:ListHas(player: Player, path: string, key: string, targetValue: any): boolean
-	local list = self:Get(player, path)
-
-	if type(list) ~= "table" then
-		return false
-	end
-
-	for _, item in list do
-		local matches = if type(item) == "table"
-			then item[key] == targetValue
-			else item == targetValue
-
-		if matches then
-			return true
-		end
-	end
-
-	return false
+	local newValue = mutator(value)
+	return self:Set(player, path, newValue)
 end
 
 function DataSystem:_notifyChange(player: Player, path: string, newValue: any)
