@@ -205,14 +205,30 @@ end
 function DataSystem:OnStart()
 	log(LogLevel.INFO, "Initializing DataSystem...")
 
-	Players.PlayerAdded:Connect(handlePlayerAdded)
-	Players.PlayerRemoving:Connect(handlePlayerRemoving)
+    Players.PlayerAdded:Connect(handlePlayerAdded)
+    Players.PlayerRemoving:Connect(handlePlayerRemoving)
 
-	for _, player in Players:GetPlayers() do
-		task.spawn(handlePlayerAdded, player)
-	end
+    for _, player in Players:GetPlayers() do
+        task.spawn(handlePlayerAdded, player)
+    end
 
-	log(LogLevel.SUCCESS, "DataSystem initialized")
+    game:BindToClose(function()
+        for userId, profile in pairs(profiles) do
+            local player = Players:GetPlayerByUserId(tonumber(userId))
+            if player then
+                stopAutoSave(player)
+                Manager.UpdateAsync(player, function(old)
+                    if not old then return nil end
+                    old.Data = profile.Data
+                    profile:Release()
+                    return old
+                end)
+            end
+        end
+        task.wait(3)
+    end)
+
+    log(LogLevel.SUCCESS, "DataSystem initialized")
 end
 
 function DataSystem:GetProfile(player: Player): Profile?
