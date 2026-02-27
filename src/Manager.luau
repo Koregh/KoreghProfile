@@ -69,7 +69,7 @@ function Manager.SaveAsync(player: Player, profileData: any): boolean
 	local success, err = pcall(function()
 		dataStore:UpdateAsync(key, function(oldData)
 			if not oldData then
-				return nil -- nothing to update; profile was never written
+				return nil 
 			end
 			oldData.Data = deepClone(profileData)
 			oldData.MetaData._last_save = os.time()
