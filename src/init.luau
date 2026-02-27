@@ -83,7 +83,6 @@ local function attemptLoadProfile(player: Player): (boolean, any?)
 		end)
 
 		if success and result then
-			-- FIX: validate data coming out of the DataStore before trusting it.
 			local valid, err = Config.Validate(result)
 			if valid then
 				return true, result
