@@ -1,12 +1,12 @@
 --!strict
+
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Manager = require(script.Manager)
 local ProfileClass = require(script.ProfileClass)
 local Config = require(script.Config)
-local Network = require(ReplicatedStorage.Shared.Network)
+local Constants = require(script.Constants)
+local Network = require(game:GetService("ReplicatedStorage").Shared.Network)
 local ValueMirror = require(script.ValueMirror)
 local DataProxy = require(script.DataProxy)
 
@@ -15,22 +15,19 @@ type ProfileStore = { [string]: Profile }
 
 local DataSystem = {}
 
-local LOAD_TIMEOUT = 10
-local LOAD_RETRY_DELAY = 2
-local MAX_LOAD_RETRIES = 5
-
 if not shared._DataSystemProfiles then
 	shared._DataSystemProfiles = {} :: ProfileStore
 end
 
 local profiles: ProfileStore = shared._DataSystemProfiles
-local autoSaveTasks: { [Player]: thread } = {}
+
+local autoSaveThreads: { [Player]: thread } = {}
 
 local LogLevel = {
-	INFO = "[INFO]",
+	INFO    = "[INFO]",
 	SUCCESS = "[✓]",
-	WARN = "[WARN]",
-	ERROR = "[ERROR]",
+	WARN    = "[WARN]",
+	ERROR   = "[ERROR]",
 }
 
 local function log(level: string, message: string)
@@ -77,6 +74,8 @@ end
 
 local function attemptLoadProfile(player: Player): (boolean, any?)
 	local attempts = 0
+	local maxRetries = Constants.SETTING.LoadMaxRetries
+	local retryDelay = Constants.SETTING.LoadRetryDelay
 
 	repeat
 		local success, result = Manager.UpdateAsync(player, function(data)
@@ -84,15 +83,20 @@ local function attemptLoadProfile(player: Player): (boolean, any?)
 		end)
 
 		if success and result then
-			return true, result
+			-- FIX: validate data coming out of the DataStore before trusting it.
+			local valid, err = Config.Validate(result)
+			if valid then
+				return true, result
+			end
+			log(LogLevel.WARN, `Invalid data for {player.Name}: {err}`)
 		end
 
 		attempts += 1
-		if attempts < MAX_LOAD_RETRIES then
-			log(LogLevel.WARN, `Load retry {attempts}/{MAX_LOAD_RETRIES} for {player.Name}`)
-			task.wait(LOAD_RETRY_DELAY)
+		if attempts < maxRetries then
+			log(LogLevel.WARN, `Load retry {attempts}/{maxRetries} for {player.Name}`)
+			task.wait(retryDelay)
 		end
-	until attempts >= MAX_LOAD_RETRIES
+	until attempts >= maxRetries
 
 	return false, nil
 end
@@ -110,25 +114,19 @@ local function setupDebugVisualization(player: Player, profileData: any)
 end
 
 local function startAutoSave(player: Player, profile: Profile)
-	if autoSaveTasks[player] then
+	if autoSaveThreads[player] then
 		return
 	end
 
-	local task = task.spawn(function()
+	local thread = task.spawn(function()
 		while player.Parent and profile:IsActive() do
-			task.wait(Config.AUTO_SAVE_INTERVAL)
+			task.wait(Constants.SETTING.AutoSaveInterval)
 
 			if not profile:IsActive() then
 				break
 			end
 
-			local success = Manager.UpdateAsync(player, function(old)
-				if not old then
-					return nil
-				end
-				old.Data = profile.Data
-				return old
-			end)
+			local success = Manager.SaveAsync(player, profile.Data)
 
 			if success then
 				log(LogLevel.INFO, `Auto-saved profile for {player.Name}`)
@@ -138,16 +136,17 @@ local function startAutoSave(player: Player, profile: Profile)
 		end
 	end)
 
-	autoSaveTasks[player] = task
+	autoSaveThreads[player] = thread
 end
 
 local function stopAutoSave(player: Player)
-	local taskThread = autoSaveTasks[player]
-	if taskThread then
-		task.cancel(taskThread)
-		autoSaveTasks[player] = nil
+	local thread = autoSaveThreads[player]
+	if thread then
+		task.cancel(thread)
+		autoSaveThreads[player] = nil
 	end
 end
+
 
 local function handlePlayerAdded(player: Player)
 	local userId = getUserId(player)
@@ -156,7 +155,7 @@ local function handlePlayerAdded(player: Player)
 	local success, profileData = attemptLoadProfile(player)
 
 	if not success or not profileData then
-		log(LogLevel.ERROR, `Failed to load profile for {player.Name} after {MAX_LOAD_RETRIES} attempts`)
+		log(LogLevel.ERROR, `Failed to load profile for {player.Name}`)
 		player:Kick("Failed to load your data. Please try rejoining.")
 		return
 	end
@@ -167,7 +166,6 @@ local function handlePlayerAdded(player: Player)
 	profiles[userId] = profile
 
 	setupDebugVisualization(player, profile.Data)
-
 	startAutoSave(player, profile)
 
 	Network.FireClient(player, "UpdateState", "All", profile.Data)
@@ -185,51 +183,60 @@ local function handlePlayerRemoving(player: Player)
 
 	stopAutoSave(player)
 
-	local success = Manager.UpdateAsync(player, function(old)
-		if not old then
-			return nil
-		end
-		old.Data = profile.Data
-		profile:Release()
-		return old
-	end)
+	local saved = Manager.ReleaseAsync(player, profile.Data)
 
-	if success then
+	if saved then
 		log(LogLevel.SUCCESS, `Profile saved and released for {player.Name}`)
 	else
-		log(LogLevel.ERROR, `Failed to save profile for {player.Name}`)
+		log(LogLevel.ERROR, `Failed to save profile for {player.Name} on leave`)
 	end
 
+	profile:Release()
 	profiles[userId] = nil
 end
 
 function DataSystem:OnStart()
 	log(LogLevel.INFO, "Initializing DataSystem...")
 
-    Players.PlayerAdded:Connect(handlePlayerAdded)
-    Players.PlayerRemoving:Connect(handlePlayerRemoving)
+	Players.PlayerAdded:Connect(handlePlayerAdded)
+	Players.PlayerRemoving:Connect(handlePlayerRemoving)
 
-    for _, player in Players:GetPlayers() do
-        task.spawn(handlePlayerAdded, player)
-    end
+	for _, player in Players:GetPlayers() do
+		task.spawn(handlePlayerAdded, player)
+	end
 
-    game:BindToClose(function()
-        for userId, profile in pairs(profiles) do
-            local player = Players:GetPlayerByUserId(tonumber(userId))
-            if player then
-                stopAutoSave(player)
-                Manager.UpdateAsync(player, function(old)
-                    if not old then return nil end
-                    old.Data = profile.Data
-                    profile:Release()
-                    return old
-                end)
-            end
-        end
-        task.wait(3)
-    end)
+	game:BindToClose(function()
+		-- On shutdown, save every active profile and release session locks.
+		local saveThreads = {}
+		for userId, profile in pairs(profiles) do
+			local player = Players:GetPlayerByUserId(tonumber(userId))
+			if player then
+				stopAutoSave(player)
+				table.insert(saveThreads, task.spawn(function()
+					Manager.ReleaseAsync(player, profile.Data)
+					profile:Release()
+				end))
+			end
+		end
 
-    log(LogLevel.SUCCESS, "DataSystem initialized")
+		-- Wait for all saves to finish (up to 20s, which is Roblox's BindToClose budget).
+		local deadline = os.clock() + 18
+		for _, t in saveThreads do
+			local remaining = deadline - os.clock()
+			if remaining <= 0 then
+				break
+			end
+			task.delay(remaining, function()
+				if coroutine.status(t) ~= "dead" then
+					task.cancel(t)
+				end
+			end)
+		end
+
+		task.wait(math.clamp(deadline - os.clock(), 0, 18))
+	end)
+
+	log(LogLevel.SUCCESS, "DataSystem initialized")
 end
 
 function DataSystem:GetProfile(player: Player): Profile?
@@ -240,7 +247,7 @@ function DataSystem:GetProfile(player: Player): Profile?
 	local userId = getUserId(player)
 	local elapsed = 0
 
-	while not profiles[userId] and player.Parent and elapsed < LOAD_TIMEOUT do
+	while not profiles[userId] and player.Parent and elapsed < Constants.SETTING.LoadTimeout do
 		elapsed += task.wait(0.1)
 	end
 
@@ -258,20 +265,19 @@ function DataSystem:Get(player: Player, path: string): any?
 	if not profile then
 		return nil
 	end
-
 	return navigateToValue(profile.Data, path)
 end
 
 function DataSystem:Set(player: Player, path: string, value: any): boolean
 	local profile = self:GetProfile(player)
 	if not profile then
-		log(LogLevel.ERROR, `Cannot set {path}: No profile for {player.Name}`)
+		log(LogLevel.ERROR, `Cannot set '{path}': No profile for {player.Name}`)
 		return false
 	end
 
 	local parent, key = navigateToParent(profile.Data, path)
 	if not parent or not key then
-		log(LogLevel.ERROR, `Invalid path: {path}`)
+		log(LogLevel.ERROR, `Cannot set '{path}': Invalid path`)
 		return false
 	end
 
@@ -284,13 +290,13 @@ end
 function DataSystem:Mutate(player: Player, path: string, mutator: (any) -> any): boolean
 	local profile = self:GetProfile(player)
 	if not profile then
-		log(LogLevel.ERROR, `Cannot mutate {path}: No profile for {player.Name}`)
+		log(LogLevel.ERROR, `Cannot mutate '{path}': No profile for {player.Name}`)
 		return false
 	end
 
 	local value = navigateToValue(profile.Data, path)
 	if value == nil then
-		log(LogLevel.ERROR, `Invalid path: {path}`)
+		log(LogLevel.ERROR, `Cannot mutate '{path}': Path not found`)
 		return false
 	end
 
@@ -306,15 +312,13 @@ function DataSystem:_notifyChange(player: Player, path: string, newValue: any)
 		return
 	end
 
-	-- Update debug visualization
 	if Config.DEBUG_MODE then
 		local debugFolder = player:FindFirstChild("_DataDebug")
 		if debugFolder then
-			ValueMirror.Sync(debugFolder, profile.Data)
+			ValueMirror.Sync(debugFolder :: Instance, profile.Data)
 		end
 	end
 
-	-- Notify client
 	Network.FireClient(player, "UpdateState", path, newValue)
 end
 
@@ -323,7 +327,7 @@ function DataSystem:Wrap(player: Player)
 	return setmetatable(wrapper, {
 		__index = function(_, path: string)
 			return DataProxy.new(player, path, self)
-		end
+		end,
 	})
 end
 
