@@ -15,6 +15,10 @@ type ProfileStore = { [string]: Profile }
 
 local DataSystem = {}
 
+-- `shared` persists between re-requires from the same server, unlike
+-- module local variables that would be recreated in a hot-reload (Studio)
+-- or if another script requires() the same module in a second instance.
+-- This ensures that already loaded profiles are not lost in these scenarios.
 if not shared._DataSystemProfiles then
 	shared._DataSystemProfiles = {} :: ProfileStore
 end
