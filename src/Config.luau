@@ -4,15 +4,10 @@ local RunService = game:GetService("RunService")
 
 local Config = {
 	DATA_KEY = "PRODUCTION_V1",
-	
-	SESSION_LOCK_TIMEOUT = 1200, 
-	LOAD_MAX_RETRIES = 8,
-	AUTO_SAVE_INTERVAL = 30, 
-	
+
 	MOCK_MODE = RunService:IsStudio(),
-	DEBUG_MODE = true,
-	
-	-- Default Data Template
+	DEBUG_MODE = RunService:IsStudio(), -- debug visualization only in Studio
+
 	TEMPLATE = {
 		Stats = {
 			Wallet = 0,
@@ -39,15 +34,22 @@ local Config = {
 }
 
 function Config.Validate(data: any): (boolean, string?)
-	
 	if type(data) ~= "table" then
 		return false, "Data must be a table"
 	end
-	
-	if type(data.Stats) ~= "table" then
-		return false, "Stats must be a table"
+
+	if type(data.Data) ~= "table" then
+		return false, "data.Data must be a table"
 	end
-	
+
+	if type(data.MetaData) ~= "table" then
+		return false, "data.MetaData must be a table"
+	end
+
+	if type(data.Data.Stats) ~= "table" then
+		return false, "data.Data.Stats must be a table"
+	end
+
 	return true, nil
 end
 
