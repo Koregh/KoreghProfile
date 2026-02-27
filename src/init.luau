@@ -8,6 +8,7 @@ local ProfileClass = require(script.ProfileClass)
 local Config = require(script.Config)
 local Network = require(ReplicatedStorage.Shared.Network)
 local ValueMirror = require(script.ValueMirror)
+local DataProxy = require(script.DataProxy)
 
 type Profile = typeof(ProfileClass.new(nil :: any, nil :: any))
 type ProfileStore = { [string]: Profile }
@@ -315,6 +316,15 @@ function DataSystem:_notifyChange(player: Player, path: string, newValue: any)
 
 	-- Notify client
 	Network.FireClient(player, "UpdateState", path, newValue)
+end
+
+function DataSystem:Wrap(player: Player)
+	local wrapper = {}
+	return setmetatable(wrapper, {
+		__index = function(_, path: string)
+			return DataProxy.new(player, path, self)
+		end
+	})
 end
 
 return DataSystem
