@@ -12,52 +12,107 @@ local function log(level: string, message: string)
 	print(`{timestamp} [Manager]{level} {message}`)
 end
 
-function Manager.UpdateAsync(player: Player, transformFunc: (any) -> any): (boolean, any?)
+function Manager.UpdateAsync(player: Player, transformFunc: (any) -> any?): (boolean, any?)
 	local key = `Player_{player.UserId}`
-	
+
 	local success, result = pcall(function()
 		return dataStore:UpdateAsync(key, function(oldData)
 			oldData = oldData or table.clone(Constants.STRUCTURE)
-			
-			local meta = oldData.MetaData
-			
-			if meta.ActiveSession and meta.ActiveSession ~= game.JobId then
-				local timeSinceLastPing = os.clock() - (meta._last_ping or 0)
-				
-				if timeSinceLastPing < Constants.SETTING.SessionLockTimeout then
-					log("[WARN]", `Session locked for {player.Name}`)
-					return nil 
-				end
+
+			-- Deep-clone MetaData defaults if missing (first-ever load)
+			if type(oldData.MetaData) ~= "table" then
+				oldData.MetaData = table.clone(Constants.STRUCTURE.MetaData)
 			end
-			
+
+			local meta = oldData.MetaData
+
+			if meta.ActiveSession and meta.ActiveSession ~= game.JobId then
+				local timeSinceLastSave = os.time() - (meta._last_save or 0)
+
+				if timeSinceLastSave < Constants.SETTING.SessionLockTimeout then
+					log("[WARN]", `Session locked for {player.Name} (last save {timeSinceLastSave}s ago)`)
+					return nil -- returning nil cancels the UpdateAsync write
+				end
+
+				log("[WARN]", `Stealing stale session lock for {player.Name}`)
+			end
+
 			meta.ActiveSession = game.JobId
-			meta._last_ping = os.clock()
+			meta._last_save = os.time()
 			meta.SessionLoadCount += 1
-			
+
 			return transformFunc(oldData)
 		end)
 	end)
-	
+
 	if not success then
 		log("[ERROR]", `UpdateAsync failed for {player.Name}: {result}`)
 		return false, nil
 	end
-	
+
 	return true, result
+end
+
+function Manager.SaveAsync(player: Player, profileData: any): boolean
+	local key = `Player_{player.UserId}`
+
+	local success, err = pcall(function()
+		dataStore:UpdateAsync(key, function(oldData)
+			if not oldData then
+				return nil -- nothing to update; profile was never written
+			end
+
+			-- Only update Data payload and refresh the save timestamp.
+			oldData.Data = profileData
+			oldData.MetaData._last_save = os.time()
+			return oldData
+		end)
+	end)
+
+	if not success then
+		log("[ERROR]", `SaveAsync failed for {player.Name}: {err}`)
+		return false
+	end
+
+	return true
+end
+
+function Manager.ReleaseAsync(player: Player, profileData: any): boolean
+	local key = `Player_{player.UserId}`
+
+	local success, err = pcall(function()
+		dataStore:UpdateAsync(key, function(oldData)
+			if not oldData then
+				return nil
+			end
+
+			oldData.Data = profileData
+			oldData.MetaData.ActiveSession = nil
+			oldData.MetaData._last_save = os.time()
+			return oldData
+		end)
+	end)
+
+	if not success then
+		log("[ERROR]", `ReleaseAsync failed for {player.Name}: {err}`)
+		return false
+	end
+
+	return true
 end
 
 function Manager.WipeDataAsync(userId: number): boolean
 	local key = `Player_{userId}`
-	
+
 	local success, err = pcall(function()
 		dataStore:RemoveAsync(key)
 	end)
-	
+
 	if not success then
 		log("[ERROR]", `Failed to wipe data for UserId {userId}: {err}`)
 		return false
 	end
-	
+
 	log("[INFO]", `Data wiped for UserId {userId}`)
 	return true
 end
