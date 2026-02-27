@@ -1,5 +1,7 @@
 --!strict
 
+local GlobalUpdates = require(script.Parent.GlobalUpdates)
+
 export type Callback = (data: any) -> ()
 
 export type Profile = {
@@ -10,44 +12,36 @@ export type Profile = {
 		ActiveSession: string?,
 		ForceLoadSteps: number,
 		UserIds: { number },
-		_last_ping: number?,
+		_last_save: number?,
 	},
-	GlobalUpdates: any,
+	GlobalUpdates: typeof(GlobalUpdates.new()),
 	Player: Player,
-	
+
 	_is_released: boolean,
 	_release_listeners: { Callback },
-	_meta_data_listeners: { Callback },
-	_hop_ready_listeners: { Callback },
-	
+
 	AddUserId: (self: Profile, userId: number) -> (),
-	GetGlobalUpdates: (self: Profile) -> any,
+	GetGlobalUpdates: (self: Profile) -> typeof(GlobalUpdates.new()),
 	IsActive: (self: Profile) -> boolean,
 	ListenToRelease: (self: Profile, callback: Callback) -> (),
-	ListenToHopReady: (self: Profile, callback: Callback) -> (),
 	Release: (self: Profile) -> (),
 	Reconcile: (self: Profile, template: any) -> (),
-	ClearMetaDataListeners: (self: Profile) -> (),
 }
 
 local ProfileClass = {}
 ProfileClass.__index = ProfileClass
 
 function ProfileClass.new(player: Player, rawData: any): Profile
-	local self = setmetatable({
+	return (setmetatable({
 		Data = rawData.Data,
 		MetaData = rawData.MetaData,
-		GlobalUpdates = rawData.GlobalUpdates,
-		
+		GlobalUpdates = GlobalUpdates.new(rawData.GlobalUpdates),
+
 		Player = player,
 		_is_released = false,
-		
+
 		_release_listeners = {},
-		_meta_data_listeners = {},
-		_hop_ready_listeners = {},
-	}, ProfileClass)
-	
-	return (self :: any) :: Profile
+	}, ProfileClass) :: any) :: Profile
 end
 
 function ProfileClass:AddUserId(userId: number)
@@ -69,28 +63,21 @@ function ProfileClass:ListenToRelease(callback: Callback)
 		task.spawn(callback, self.Data)
 		return
 	end
-	
 	table.insert(self._release_listeners, callback)
-end
-
-function ProfileClass:ListenToHopReady(callback: Callback)
-	table.insert(self._hop_ready_listeners, callback)
 end
 
 function ProfileClass:Release()
 	if self._is_released then
 		return
 	end
-	
+
 	self._is_released = true
-	
+
 	for _, callback in self._release_listeners do
 		task.spawn(callback, self.Data)
 	end
-	
+
 	table.clear(self._release_listeners)
-	table.clear(self._meta_data_listeners)
-	table.clear(self._hop_ready_listeners)
 end
 
 function ProfileClass:Reconcile(template: any)
@@ -108,12 +95,8 @@ function ProfileClass:Reconcile(template: any)
 			end
 		end
 	end
-	
-	reconcileTable(self.Data, template)
-end
 
-function ProfileClass:ClearMetaDataListeners()
-	table.clear(self._meta_data_listeners)
+	reconcileTable(self.Data, template)
 end
 
 return ProfileClass
