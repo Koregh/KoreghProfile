@@ -12,6 +12,17 @@ local function log(level: string, message: string)
 	print(`{timestamp} [Manager]{level} {message}`)
 end
 
+local function deepClone(t: any): any
+	if type(t) ~= "table" then
+		return t
+	end
+	local copy = {}
+	for k, v in pairs(t) do
+		copy[k] = deepClone(v)
+	end
+	return copy
+end
+
 function Manager.UpdateAsync(player: Player, transformFunc: (any) -> any?): (boolean, any?)
 	local key = `Player_{player.UserId}`
 
@@ -19,7 +30,6 @@ function Manager.UpdateAsync(player: Player, transformFunc: (any) -> any?): (boo
 		return dataStore:UpdateAsync(key, function(oldData)
 			oldData = oldData or table.clone(Constants.STRUCTURE)
 
-			-- Deep-clone MetaData defaults if missing (first-ever load)
 			if type(oldData.MetaData) ~= "table" then
 				oldData.MetaData = table.clone(Constants.STRUCTURE.MetaData)
 			end
@@ -31,7 +41,7 @@ function Manager.UpdateAsync(player: Player, transformFunc: (any) -> any?): (boo
 
 				if timeSinceLastSave < Constants.SETTING.SessionLockTimeout then
 					log("[WARN]", `Session locked for {player.Name} (last save {timeSinceLastSave}s ago)`)
-					return nil -- returning nil cancels the UpdateAsync write
+					return nil 
 				end
 
 				log("[WARN]", `Stealing stale session lock for {player.Name}`)
@@ -61,9 +71,7 @@ function Manager.SaveAsync(player: Player, profileData: any): boolean
 			if not oldData then
 				return nil -- nothing to update; profile was never written
 			end
-
-			-- Only update Data payload and refresh the save timestamp.
-			oldData.Data = profileData
+			oldData.Data = deepClone(profileData)
 			oldData.MetaData._last_save = os.time()
 			return oldData
 		end)
@@ -86,7 +94,7 @@ function Manager.ReleaseAsync(player: Player, profileData: any): boolean
 				return nil
 			end
 
-			oldData.Data = profileData
+			oldData.Data = deepClone(profileData)
 			oldData.MetaData.ActiveSession = nil
 			oldData.MetaData._last_save = os.time()
 			return oldData
