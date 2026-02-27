@@ -72,22 +72,30 @@ local function navigateToParent(data: any, path: string): (any?, string?)
 	return current, keys[#keys]
 end
 
-local function attemptLoadProfile(player: Player): (boolean, any?)
+type LoadFailReason = "locked" | "error" | "invalid"
+
+local function attemptLoadProfile(player: Player): (boolean, any?, LoadFailReason?)
 	local attempts = 0
 	local maxRetries = Constants.SETTING.LoadMaxRetries
 	local retryDelay = Constants.SETTING.LoadRetryDelay
 
 	repeat
-		local success, result = Manager.UpdateAsync(player, function(data)
+		local status, result = Manager.UpdateAsync(player, function(data)
 			return data
 		end)
 
-		if success and result then
+		if status == "locked" then
+			log(LogLevel.WARN, `Session locked for {player.Name}, aborting retries`)
+			return false, nil, "locked"
+		end
+
+		if status == "ok" and result then
 			local valid, err = Config.Validate(result)
 			if valid then
-				return true, result
+				return true, result, nil
 			end
 			log(LogLevel.WARN, `Invalid data for {player.Name}: {err}`)
+			return false, nil, "invalid"
 		end
 
 		attempts += 1
@@ -97,7 +105,7 @@ local function attemptLoadProfile(player: Player): (boolean, any?)
 		end
 	until attempts >= maxRetries
 
-	return false, nil
+	return false, nil, "error"
 end
 
 local function setupDebugVisualization(player: Player, profileData: any)
@@ -151,11 +159,18 @@ local function handlePlayerAdded(player: Player)
 	local userId = getUserId(player)
 	log(LogLevel.INFO, `Loading profile for {player.Name} (ID: {userId})`)
 
-	local success, profileData = attemptLoadProfile(player)
+	local success, profileData, failReason = attemptLoadProfile(player)
 
 	if not success or not profileData then
-		log(LogLevel.ERROR, `Failed to load profile for {player.Name}`)
-		player:Kick("Failed to load your data. Please try rejoining.")
+		log(LogLevel.ERROR, `Failed to load profile for {player.Name} (reason: {failReason})`)
+
+		local kickMessages = {
+			locked  = "Your session is still active on another server. Please wait 1 minute and try again.",
+			invalid = "Your data is corrupt. Please contact support.",
+			error   = "Unable to load your data. Try reconnecting.",
+		}
+
+		player:Kick(kickMessages[failReason :: string] or "Unknown error loading data.")
 		return
 	end
 
