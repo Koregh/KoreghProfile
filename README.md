@@ -22,17 +22,17 @@
 The basic usage allows you to manipulate simple values (Numbers, Booleans, Strings) with direct calls.
 
 ```lua
-local DataSystem = require(path.to.DataSystem)
+local DataSystem = require(...DataSystem)
 
 -- Initialize the Wrapper for the player
 local PlayerData = DataSystem:Wrap(player)
 
--- [SIMPLE] Changing numeric values
+-- Changing numeric values
 PlayerData.Gold:Change(100, "Add")      -- Adds 100
 PlayerData.Level:Change(1, "Add")       -- Increases 1 level
 PlayerData.Mana:Change(50, "Set")       -- Sets to 50
 
--- [SIMPLE] Reading values
+-- Reading values
 local currentGold = PlayerData.Gold:Get()
 ```
 
