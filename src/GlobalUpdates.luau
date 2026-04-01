@@ -1,24 +1,29 @@
 --!strict
 
-export type Update = { [any]: any }
+export type Update      = { [any]: any }
 export type UpdateEntry = { number, Update }
 
 export type GlobalUpdates = {
 	GetActiveUpdates: (self: GlobalUpdates) -> { UpdateEntry },
-	AddUpdate: (self: GlobalUpdates, data: Update) -> (),
-	ClearUpdate: (self: GlobalUpdates, updateId: number) -> (),
+	AddUpdate       : (self: GlobalUpdates, data: Update) -> (),
+	ClearUpdate     : (self: GlobalUpdates, updateId: number) -> (),
+	Serialize       : (self: GlobalUpdates) -> { any },
 }
 
 local GlobalUpdatesClass = {}
 GlobalUpdatesClass.__index = GlobalUpdatesClass
 
-function GlobalUpdatesClass.new(updatesTable: { any }?)
-	-- Default to { 1, {} } — nextId starts at 1, entries empty
-	local raw = updatesTable or { 1, {} }
-	return setmetatable({
-		_nextId = raw[1] :: number,
-		_entries = raw[2] :: { UpdateEntry },
-	}, GlobalUpdatesClass)
+--[[
+	GlobalUpdatesClass.new
+	raw = { nextId, entries } conforme serializado no DataStore.
+	Default: { 0, {} } — nextId começa em 0.
+]]
+function GlobalUpdatesClass.new(raw: { any }?): GlobalUpdates
+	local data = raw or { 0, {} }
+	return (setmetatable({
+		_nextId  = (data[1] :: number) or 0,
+		_entries = (data[2] :: { UpdateEntry }) or {},
+	}, GlobalUpdatesClass) :: any) :: GlobalUpdates
 end
 
 function GlobalUpdatesClass:GetActiveUpdates(): { UpdateEntry }
@@ -26,7 +31,7 @@ function GlobalUpdatesClass:GetActiveUpdates(): { UpdateEntry }
 end
 
 function GlobalUpdatesClass:AddUpdate(data: Update)
-	local id = self._nextId
+	local id     = self._nextId
 	self._nextId += 1
 	table.insert(self._entries, { id, data })
 end
@@ -40,6 +45,7 @@ function GlobalUpdatesClass:ClearUpdate(updateId: number)
 	end
 end
 
+-- Serializa de volta para o formato do DataStore
 function GlobalUpdatesClass:Serialize(): { any }
 	return { self._nextId, self._entries }
 end
