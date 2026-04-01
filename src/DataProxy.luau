@@ -8,20 +8,24 @@ type Operation = "Add" | "Sub" | "Set"
 function DataProxy.new(player: Player, path: string, system: any)
 	return setmetatable({
 		_player = player,
-		_path = path,
+		_path   = path,
 		_system = system,
 	}, DataProxy)
 end
 
+--[[
+	Change
+	Aplica uma operação numérica no valor do caminho.
+	"Add" soma, "Sub" subtrai, "Set" substitui.
+]]
 function DataProxy:Change(value: number, op: Operation): boolean
 	local current = self._system:Get(self._player, self._path)
 	if current == nil then
-		warn(`[DataProxy] Path '{self._path}' not found for {self._player.Name}`)
+		warn(`[DataProxy] Caminho '{self._path}' não encontrado para {self._player.Name}`)
 		return false
 	end
-
-	if typeof(current) ~= "number" then
-		warn(`[DataProxy] Path '{self._path}' is not a number (got {typeof(current)})`)
+	if type(current) ~= "number" then
+		warn(`[DataProxy] Caminho '{self._path}' não é number (é {typeof(current)})`)
 		return false
 	end
 
@@ -29,27 +33,33 @@ function DataProxy:Change(value: number, op: Operation): boolean
 		old = old or 0
 		if op == "Add" then return old + value end
 		if op == "Sub" then return old - value end
-		return value
+		return value -- "Set"
 	end)
 end
 
+--[[
+	Insert
+	Insere um item na lista do caminho.
+]]
 function DataProxy:Insert(item: any): boolean
 	return self._system:Mutate(self._player, self._path, function(tbl: any)
 		if type(tbl) ~= "table" then
-			warn(`[DataProxy] Path '{self._path}' is not a table`)
+			warn(`[DataProxy] Caminho '{self._path}' não é uma tabela`)
 			return tbl
 		end
-		tbl = tbl or {}
 		table.insert(tbl, item)
 		return tbl
 	end)
 end
 
+--[[
+	Find
+	Retorna o primeiro item da lista onde item[key] == value.
+]]
 function DataProxy:Find(key: string, value: any): any?
 	local tbl = self._system:Get(self._player, self._path)
-	if type(tbl) ~= "table" then
-		return nil
-	end
+	if type(tbl) ~= "table" then return nil end
+
 	for _, v in ipairs(tbl) do
 		if type(v) == "table" and v[key] == value then
 			return v
@@ -58,10 +68,26 @@ function DataProxy:Find(key: string, value: any): any?
 	return nil
 end
 
+--[[
+	Patch
+	Aplica um merge nos campos de um item da lista identificado por idKey == idValue.
+	Deep merge: subtabelas são mescladas recursivamente.
+	changes é clonado para evitar mutações externas.
+]]
 function DataProxy:Patch(idKey: string, idValue: any, changes: { [any]: any }): boolean
+	-- Clona changes para isolar de mutações externas após o call
+	local function deepClone(t: any): any
+		if type(t) ~= "table" then return t end
+		local copy = {}
+		for k, v in pairs(t) do copy[k] = deepClone(v) end
+		return copy
+	end
+
+	local safeChanges = deepClone(changes)
+
 	return self._system:Mutate(self._player, self._path, function(tbl: any)
 		if type(tbl) ~= "table" then
-			warn(`[DataProxy] Path '{self._path}' is not a table`)
+			warn(`[DataProxy] Caminho '{self._path}' não é uma tabela`)
 			return tbl
 		end
 
@@ -77,7 +103,7 @@ function DataProxy:Patch(idKey: string, idValue: any, changes: { [any]: any }): 
 
 		for _, item in ipairs(tbl) do
 			if type(item) == "table" and item[idKey] == idValue then
-				merge(item, changes)
+				merge(item, safeChanges)
 				break
 			end
 		end
