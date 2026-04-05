@@ -12,11 +12,9 @@ local DataProxy    = require(script.DataProxy)
 type Profile      = typeof(ProfileClass.new(nil :: any, nil :: any))
 type ProfileStore = { [string]: Profile }
 
-------------------------------------------------------------------------
 
 local DataSystem = {}
 
--- shared persiste entre re-requires do mesmo servidor (hot-reload no Studio)
 if not shared._KoreghProfiles then
 	shared._KoreghProfiles = {} :: ProfileStore
 end
@@ -24,9 +22,6 @@ end
 local profiles: ProfileStore      = shared._KoreghProfiles
 local autoSaveThreads: { [Player]: thread } = {}
 
-------------------------------------------------------------------------
--- LOGGING
-------------------------------------------------------------------------
 
 local LogLevel = {
 	INFO    = "[INFO]",
@@ -38,10 +33,6 @@ local LogLevel = {
 local function log(level: string, message: string)
 	print(`{os.date("%H:%M:%S")} [DataSystem]{level} {message}`)
 end
-
-------------------------------------------------------------------------
--- UTILITÁRIOS
-------------------------------------------------------------------------
 
 local function getUserId(player: Player): string
 	return tostring(player.UserId)
@@ -68,13 +59,6 @@ local function navigateToParent(data: any, path: string): (any?, string?)
 	return current, keys[#keys]
 end
 
-------------------------------------------------------------------------
--- LOAD
--- Tenta carregar o perfil com retries.
--- Retorna (success, data, failReason).
--- failReason: "locked" | "invalid" | "error"
-------------------------------------------------------------------------
-
 type FailReason = "locked" | "invalid" | "error"
 
 local function attemptLoadProfile(player: Player): (boolean, any?, FailReason?)
@@ -86,8 +70,7 @@ local function attemptLoadProfile(player: Player): (boolean, any?, FailReason?)
 		local ok, result = Manager.UpdateAsync(player, function(data) return data end)
 
 		if ok and result == nil then
-			-- result nil = session lock ativo, sem sentido em tentar de novo agora
-			log(LogLevel.WARN, `Session lock ativo para {player.Name}, abortando`)
+		log(LogLevel.WARN, `Session lock active for {player.Name}, aborting`)
 			return false, nil, "locked"
 		end
 
@@ -96,13 +79,13 @@ local function attemptLoadProfile(player: Player): (boolean, any?, FailReason?)
 			if valid then
 				return true, result, nil
 			end
-			log(LogLevel.WARN, `Dados inválidos para {player.Name}: {err}`)
+		log(LogLevel.WARN, `Invalid data for {player.Name}: {err}`)
 			return false, nil, "invalid"
 		end
 
 		attempts += 1
 		if attempts < maxRetries then
-			log(LogLevel.WARN, `Retry {attempts}/{maxRetries} para {player.Name}`)
+		log(LogLevel.WARN, `Retry {attempts}/{maxRetries} for {player.Name}`)
 			task.wait(retryDelay)
 		end
 	until attempts >= maxRetries
@@ -110,9 +93,6 @@ local function attemptLoadProfile(player: Player): (boolean, any?, FailReason?)
 	return false, nil, "error"
 end
 
-------------------------------------------------------------------------
--- DEBUG MIRROR
-------------------------------------------------------------------------
 
 local function setupDebugVisualization(player: Player, data: any)
 	if not Config.DEBUG_MODE then return end
@@ -123,9 +103,6 @@ local function setupDebugVisualization(player: Player, data: any)
 	ValueMirror.Sync(folder, data)
 end
 
-------------------------------------------------------------------------
--- AUTO-SAVE
-------------------------------------------------------------------------
 
 local function startAutoSave(player: Player, profile: Profile)
 	if autoSaveThreads[player] then return end
@@ -139,7 +116,7 @@ local function startAutoSave(player: Player, profile: Profile)
 			if saved then
 				log(LogLevel.INFO, `Auto-save ok: {player.Name}`)
 			else
-				log(LogLevel.ERROR, `Auto-save falhou: {player.Name}`)
+				log(LogLevel.ERROR, `Auto-save failed: {player.Name}`)
 			end
 		end
 	end)
@@ -153,9 +130,6 @@ local function stopAutoSave(player: Player)
 	end
 end
 
-------------------------------------------------------------------------
--- PLAYER ADDED
-------------------------------------------------------------------------
 
 local function handlePlayerAdded(player: Player)
 	local userId = getUserId(player)
@@ -163,17 +137,16 @@ local function handlePlayerAdded(player: Player)
 
 	local success, profileData, failReason = attemptLoadProfile(player)
 
-	-- Verifica se o player ainda está no jogo após os retries
 	if not player.Parent then return end
 
 	if not success or not profileData then
 		local kickMessages = {
-			locked  = "Sua sessão ainda está ativa em outro servidor. Aguarde 2 minutos e tente novamente.",
-			invalid = "Seus dados estão corrompidos. Entre em contato com o suporte.",
-			error   = "Não foi possível carregar seus dados. Tente reconectar.",
+			locked = "Your session is still active on another server. Wait 2 minutes and try again.",
+			invalid = "Your data is corrupt. Please contact support.",
+			error = "Unable to load your data. Try reconnecting.",
 		}
-		player:Kick(kickMessages[failReason :: string] or "Erro desconhecido ao carregar dados.")
-		log(LogLevel.ERROR, `Falha ao carregar {player.Name}: {failReason}`)
+		player:Kick(kickMessages[failReason :: string] or "Unknown error loading data.")
+		log(LogLevel.ERROR, `Failed to load {player.Name}: {failReason}`)
 		return
 	end
 
@@ -184,15 +157,13 @@ local function handlePlayerAdded(player: Player)
 
 	setupDebugVisualization(player, profile.Data)
 	startAutoSave(player, profile)
-	Manager.StartPing(player) -- mantém o session lock vivo
+	Manager.StartPing(player) 
 
 	Network.FireClient(player, "UpdateState", "All", profile.Data)
 	log(LogLevel.SUCCESS, `Perfil carregado: {player.Name}`)
 end
 
-------------------------------------------------------------------------
--- PLAYER REMOVING
-------------------------------------------------------------------------
+
 
 local function handlePlayerRemoving(player: Player)
 	local userId  = getUserId(player)
@@ -204,18 +175,16 @@ local function handlePlayerRemoving(player: Player)
 
 	local saved = Manager.ReleaseAsync(player, profile.Data)
 	if saved then
-		log(LogLevel.SUCCESS, `Perfil salvo e liberado: {player.Name}`)
+		log(LogLevel.SUCCESS, `Profile saved and released: {player.Name}`)
 	else
-		log(LogLevel.ERROR, `Falha ao salvar perfil de {player.Name} ao sair`)
+		log(LogLevel.ERROR, `Failed to save {player.Name} profile on exit`)
 	end
 
 	profile:Release()
 	profiles[userId] = nil
 end
 
-------------------------------------------------------------------------
--- ON START
-------------------------------------------------------------------------
+
 
 function DataSystem:OnStart()
 	log(LogLevel.INFO, "Inicializando DataSystem...")
@@ -227,7 +196,6 @@ function DataSystem:OnStart()
 		task.spawn(handlePlayerAdded, player)
 	end
 
-	-- Salva todos ao fechar e aguarda cada save terminar de verdade
 	game:BindToClose(function()
 		local threads = {}
 
@@ -244,12 +212,11 @@ function DataSystem:OnStart()
 					profile:Release()
 				end)
 				if not ok then
-					log(LogLevel.ERROR, `Erro ao salvar {userId} no fechamento: {err}`)
+				log(LogLevel.ERROR, `Error saving {userId} at closing: {err}`)
 				end
 			end))
 		end
 
-		-- Aguarda todos terminarem (Roblox dá ~30s de budget no BindToClose)
 		for _, thread in ipairs(threads) do
 			while coroutine.status(thread) ~= "dead" do
 				task.wait()
@@ -260,9 +227,6 @@ function DataSystem:OnStart()
 	log(LogLevel.SUCCESS, "DataSystem inicializado")
 end
 
-------------------------------------------------------------------------
--- GET PROFILE
-------------------------------------------------------------------------
 
 function DataSystem:GetProfile(player: Player): Profile?
 	if not player then return nil end
@@ -273,7 +237,7 @@ function DataSystem:GetProfile(player: Player): Profile?
 	while not profiles[userId] do
 		if not player.Parent then return nil end
 		if elapsed >= Constants.SETTING.LoadTimeout then
-			log(LogLevel.WARN, `Timeout aguardando perfil de {player.Name}`)
+		log(LogLevel.WARN, `Timeout waiting for {player.Name}` profile)
 			return nil
 		end
 		elapsed += task.wait(0.1)
@@ -282,9 +246,6 @@ function DataSystem:GetProfile(player: Player): Profile?
 	return profiles[userId]
 end
 
-------------------------------------------------------------------------
--- GET / SET / MUTATE
-------------------------------------------------------------------------
 
 function DataSystem:Get(player: Player, path: string): any?
 	local profile = self:GetProfile(player)
@@ -295,13 +256,13 @@ end
 function DataSystem:Set(player: Player, path: string, value: any): boolean
 	local profile = self:GetProfile(player)
 	if not profile then
-		log(LogLevel.ERROR, `Set "{path}" falhou: sem perfil para {player.Name}`)
+	log(LogLevel.ERROR, `Set "{path}" failed: no profile for {player.Name}`)
 		return false
 	end
 
 	local parent, key = navigateToParent(profile.Data, path)
 	if not parent or not key then
-		log(LogLevel.ERROR, `Set "{path}" falhou: caminho inválido`)
+	log(LogLevel.ERROR, `Set "{path}" failed: invalid path`)
 		return false
 	end
 
@@ -313,22 +274,19 @@ end
 function DataSystem:Mutate(player: Player, path: string, mutator: (any) -> any): boolean
 	local profile = self:GetProfile(player)
 	if not profile then
-		log(LogLevel.ERROR, `Mutate "{path}" falhou: sem perfil para {player.Name}`)
+		log(LogLevel.ERROR, `Mutate "{path}" failed: no profile for {player.Name}`)
 		return false
 	end
 
 	local value = navigateToValue(profile.Data, path)
 	if value == nil then
-		log(LogLevel.ERROR, `Mutate "{path}" falhou: caminho não encontrado`)
+log(LogLevel.ERROR, `Mutate "{path}" failed: path not found`)
 		return false
 	end
 
 	return self:Set(player, path, mutator(value))
 end
 
-------------------------------------------------------------------------
--- NOTIFY CHANGE
-------------------------------------------------------------------------
 
 function DataSystem:_notifyChange(player: Player, path: string, newValue: any)
 	local profile = profiles[getUserId(player)]
@@ -344,9 +302,6 @@ function DataSystem:_notifyChange(player: Player, path: string, newValue: any)
 	Network.FireClient(player, "UpdateState", path, newValue)
 end
 
-------------------------------------------------------------------------
--- WRAP (DataProxy)
-------------------------------------------------------------------------
 
 function DataSystem:Wrap(player: Player)
 	return setmetatable({}, {
