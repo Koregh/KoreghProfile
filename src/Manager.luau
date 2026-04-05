@@ -8,12 +8,9 @@ local dataStore = DataStoreService:GetDataStore("GameData_V1")
 -- Threads de ping ativos por userId
 local _pingThreads: {[string]: thread} = {}
 
-local PING_INTERVAL        = 60   -- segundos entre pings
-local SESSION_LOCK_TIMEOUT = 120  -- segundos sem ping = sessão morta
+local PING_INTERVAL = 60 -- seconds between pings
+local SESSION_LOCK_TIMEOUT = 120 -- seconds without ping = dead session
 
-------------------------------------------------------------------------
--- UTILITÁRIOS
-------------------------------------------------------------------------
 
 local function log(level: string, message: string)
 	print(`{os.date("%H:%M:%S")} [Manager]{level} {message}`)
@@ -42,11 +39,6 @@ local function resolveUserId(player: Player | number): string
 	return tostring(player)
 end
 
-------------------------------------------------------------------------
--- SISTEMA DE PING
--- Mantém _last_ping atualizado enquanto o servidor está vivo.
--- Se o servidor travar, o ping para e o lock expira em SESSION_LOCK_TIMEOUT.
-------------------------------------------------------------------------
 
 local function doPing(key: string)
 	pcall(function()
@@ -59,7 +51,7 @@ local function doPing(key: string)
 	end)
 end
 
--- Inicia loop de ping. Chamar após load bem-sucedido.
+-- Start ping loop. Call after successful load.
 function Manager.StartPing(player: Player | number)
 	local userId = resolveUserId(player)
 	local key    = resolveKey(player)
@@ -75,7 +67,7 @@ function Manager.StartPing(player: Player | number)
 	end)
 end
 
--- Para o loop de ping. Chamar antes do save final.
+-- Stops the ping loop. Call before final save.
 function Manager.StopPing(player: Player | number)
 	local userId = resolveUserId(player)
 	local thread = _pingThreads[userId]
@@ -85,16 +77,14 @@ function Manager.StopPing(player: Player | number)
 	end
 end
 
-------------------------------------------------------------------------
--- UPDATE ASYNC
--- Lê, verifica session lock e transforma os dados.
--- Retorna (success: boolean, result: any)
+-- UPDATE ASYNC!!!!!!!
+-- Reads, checks session lock and transforms the data.
+-- Returns (success: boolean, result: any)
 --
 -- Session lock:
---   Bloqueado se outro JobId ativo E _last_ping recente (< SESSION_LOCK_TIMEOUT).
---   Se ping parou (servidor travado), lock expira automaticamente em ~120s.
---   Ao sair normalmente, ReleaseAsync zera ActiveSession → próximo load imediato.
-------------------------------------------------------------------------
+-- Blocked if other active JobId AND recent _last_ping (< SESSION_LOCK_TIMEOUT).
+-- If ping stopped (server locked), lock automatically expires in ~120s.
+-- When exiting normally, ReleaseAsync resets ActiveSession → next load immediately.
 
 function Manager.UpdateAsync(player: Player | number, transformFunc: (any) -> any): (boolean, any?)
 	local key = resolveKey(player)
@@ -113,17 +103,17 @@ function Manager.UpdateAsync(player: Player | number, transformFunc: (any) -> an
 			if meta.ActiveSession and meta.ActiveSession ~= game.JobId then
 				if elapsed < SESSION_LOCK_TIMEOUT then
 					local remaining = SESSION_LOCK_TIMEOUT - elapsed
-					log("[WARN]", `Session lock ativo: "{key}" — expira em {remaining}s`)
-					return nil -- DataStore não salva, caller recebe nil
+					log("[WARN]", `Session lock active: "{key}" — expires in {remaining}s`)
+					return nil -- DataStore does not save, caller receives nil
 				end
-				log("[WARN]", `Session lock expirado: "{key}" — assumindo sessão após {elapsed}s`)
+				log("[WARN]", `Session lock expired: "{key}" — assuming session after {elapsed}s`)
 			end
 
 			meta.ActiveSession    = game.JobId
 			meta._last_ping       = os.time()
 			meta.SessionLoadCount = (meta.SessionLoadCount or 0) + 1
 
-			-- Deep clone garante que transformFunc nunca recebe referências internas
+			-- Deep clone ensures that transformFunc never receives internal references
 			return transformFunc(deepClone(old))
 		end)
 	end)
@@ -136,12 +126,6 @@ function Manager.UpdateAsync(player: Player | number, transformFunc: (any) -> an
 	return true, result
 end
 
-------------------------------------------------------------------------
--- SAVE ASYNC
--- Salva dados sem liberar a sessão (usado pelo auto-save).
--- Usa snapshot para evitar referências vivas no callback.
-------------------------------------------------------------------------
-
 function Manager.SaveAsync(player: Player | number, profileData: any): boolean
 	local key      = resolveKey(player)
 	local snapshot = deepClone(profileData) -- captura ANTES do pcall
@@ -149,9 +133,9 @@ function Manager.SaveAsync(player: Player | number, profileData: any): boolean
 	local success, err = pcall(function()
 		dataStore:UpdateAsync(key, function(old: any)
 			if not old then return nil end
-			-- Verifica se ainda somos donos da sessão antes de salvar
+			-- Check if we still own the session before saving
 			if old.MetaData and old.MetaData.ActiveSession ~= game.JobId then
-				log("[WARN]", `SaveAsync abortado: sessão de "{key}" pertence a outro servidor`)
+				log("[WARN]", `SaveAsync aborted: session of "{key}" belongs to another server`)
 				return nil
 			end
 			old.Data              = snapshot
@@ -161,28 +145,24 @@ function Manager.SaveAsync(player: Player | number, profileData: any): boolean
 	end)
 
 	if not success then
-		log("[ERROR]", `SaveAsync falhou: {err}`)
+	log("[ERROR]", `SaveAsync failed: {err}`)
 		return false
 	end
 
 	return true
 end
 
-------------------------------------------------------------------------
--- RELEASE ASYNC
--- Salva dados e libera o session lock.
--- Chamar ao sair (PlayerRemoving / BindToClose).
-------------------------------------------------------------------------
+
 
 function Manager.ReleaseAsync(player: Player | number, profileData: any): boolean
 	local key      = resolveKey(player)
-	local snapshot = deepClone(profileData) -- captura ANTES do pcall
+	local snapshot = deepClone(profileData) 
 
 	local success, err = pcall(function()
 		dataStore:UpdateAsync(key, function(old: any)
 			if not old then return nil end
 			old.Data                    = snapshot
-			old.MetaData.ActiveSession  = nil  -- libera o lock imediatamente
+			old.MetaData.ActiveSession  = nil  -
 			old.MetaData._last_ping     = 0
 			return old
 		end)
@@ -196,9 +176,6 @@ function Manager.ReleaseAsync(player: Player | number, profileData: any): boolea
 	return true
 end
 
-------------------------------------------------------------------------
--- WIPE
-------------------------------------------------------------------------
 
 function Manager.WipeDataAsync(userId: number): boolean
 	Manager.StopPing(userId)
@@ -209,11 +186,11 @@ function Manager.WipeDataAsync(userId: number): boolean
 	end)
 
 	if not success then
-		log("[ERROR]", `WipeDataAsync falhou para UserId {userId}: {err}`)
+	log("[ERROR]", `WipeDataAsync failed for UserId {userId}: {err}`)
 		return false
 	end
 
-	log("[INFO]", `Dados removidos para UserId {userId}`)
+	log("[INFO]", `Data removed for UserId {userId}`)
 	return true
 end
 
