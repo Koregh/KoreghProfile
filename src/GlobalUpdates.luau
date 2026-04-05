@@ -15,7 +15,7 @@ GlobalUpdatesClass.__index = GlobalUpdatesClass
 
 --[[
 	GlobalUpdatesClass.new
-	raw = { nextId, entries } conforme serializado no DataStore.
+	raw = { nextId, entries } as serialized in the DataStore.
 	Default: { 0, {} } — nextId começa em 0.
 ]]
 function GlobalUpdatesClass.new(raw: { any }?): GlobalUpdates
@@ -45,7 +45,7 @@ function GlobalUpdatesClass:ClearUpdate(updateId: number)
 	end
 end
 
--- Serializa de volta para o formato do DataStore
+-- Serialize back to DataStore format
 function GlobalUpdatesClass:Serialize(): { any }
 	return { self._nextId, self._entries }
 end
