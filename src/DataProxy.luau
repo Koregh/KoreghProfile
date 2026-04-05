@@ -14,18 +14,18 @@ function DataProxy.new(player: Player, path: string, system: any)
 end
 
 --[[
-	Change
-	Aplica uma operação numérica no valor do caminho.
-	"Add" soma, "Sub" subtrai, "Set" substitui.
+	To change
+	Apply a numeric operation without path value.
+	"Add" adds, "Sub" subtracts, "Set" replaces.
 ]]
 function DataProxy:Change(value: number, op: Operation): boolean
 	local current = self._system:Get(self._player, self._path)
 	if current == nil then
-		warn(`[DataProxy] Caminho '{self._path}' não encontrado para {self._player.Name}`)
+		warn(`[DataProxy] Path '{self._path}' not found for {self._player.Name}`)
 		return false
 	end
 	if type(current) ~= "number" then
-		warn(`[DataProxy] Caminho '{self._path}' não é number (é {typeof(current)})`)
+		warn(`[DataProxy] Path '{self._path}' is not number (it is {typeof(current)})`)
 		return false
 	end
 
@@ -39,7 +39,7 @@ end
 
 --[[
 	Insert
-	Insere um item na lista do caminho.
+	Inserts an item into the path list.
 ]]
 function DataProxy:Insert(item: any): boolean
 	return self._system:Mutate(self._player, self._path, function(tbl: any)
@@ -53,8 +53,8 @@ function DataProxy:Insert(item: any): boolean
 end
 
 --[[
-	Find
-	Retorna o primeiro item da lista onde item[key] == value.
+Find
+	Returns the first item in the list where item[key] == value.
 ]]
 function DataProxy:Find(key: string, value: any): any?
 	local tbl = self._system:Get(self._player, self._path)
@@ -70,9 +70,9 @@ end
 
 --[[
 	Patch
-	Aplica um merge nos campos de um item da lista identificado por idKey == idValue.
-	Deep merge: subtabelas são mescladas recursivamente.
-	changes é clonado para evitar mutações externas.
+	Applies a merge to the fields of a list item identified by idKey == idValue.
+	Deep merge: subtables are merged recursively.
+	changes is cloned to avoid external mutations.
 ]]
 function DataProxy:Patch(idKey: string, idValue: any, changes: { [any]: any }): boolean
 	-- Clona changes para isolar de mutações externas após o call
