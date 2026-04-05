@@ -32,7 +32,6 @@ export type Profile = {
 local ProfileClass = {}
 ProfileClass.__index = ProfileClass
 
--- Utilitário: deep clone (corrige o table.clone shallow do Reconcile)
 local function deepClone(t: any): any
 	if type(t) ~= "table" then return t end
 	local copy = {}
@@ -85,12 +84,6 @@ function ProfileClass:ListenToHopReady(callback: Callback)
 	table.insert(self._hop_ready_listeners, callback)
 end
 
---[[
-	Release
-	Marca o perfil como liberado e dispara os listeners.
-	Idempotente: chamadas subsequentes são ignoradas.
-	Limpa listeners para evitar referências penduradas.
-]]
 function ProfileClass:Release()
 	if self._is_released then return end
 	self._is_released = true
@@ -103,16 +96,12 @@ function ProfileClass:Release()
 	self._hop_ready_listeners = {}
 end
 
---[[
-	Reconcile
-	Preenche chaves faltando com valores do template.
-	Usa deepClone para nunca compartilhar referências entre profiles.
-]]
+
 function ProfileClass:Reconcile(template: any)
 	local function reconcileTable(target: any, source: any)
 		for key, value in pairs(source) do
 			if target[key] == nil then
-				target[key] = deepClone(value) -- deep clone, não table.clone
+				target[key] = deepClone(value) 
 			elseif type(target[key]) == "table" and type(value) == "table" then
 				reconcileTable(target[key], value)
 			end
